@@ -1,3 +1,5 @@
+import sys
+sys.path.insert(1, '/ChatApp/')
 from threading import Thread
 import Server.messages as mr
 import Server.session as sess
@@ -13,7 +15,6 @@ S_SOCKET.bind((base.SERVER_IP, base.SERVER_PORT))
 S_SOCKET.listen(5)
 
 s.SOCKETS_LIST.append(S_SOCKET)  # list of connected sockets
-
 
 
 def main():
