@@ -1,50 +1,86 @@
-import socket
-import errno
 import sys
+import Base.settings as base
+import Client.messages as mm
+import Client.session as ms
+import Client.settings as c
 
-SERVER_IP = "127.0.0.1"
-SERVER_PORT = 1234
-MSG_BUF_SIZE = 1024
-HEADER_LENGTH = 10
 
-my_username = input("Username: ")
-c_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-c_socket.connect((SERVER_IP, SERVER_PORT))
-c_socket.setblocking(False)
+def main():
+    c_socket = ms.establish_connection(base.SERVER_IP, base.SERVER_PORT)
+    ms.manage_keepalive(c_socket)
 
-username = my_username.encode('utf-8')
-username_header = f"{len(username):<{HEADER_LENGTH}}".encode('utf-8')
-c_socket.send(username_header + username)
+    attempt_connect = 0
+    action = True
 
-while True:
-    message_out = input(f"{my_username} >> ")
+    while attempt_connect == 0:
+        open_msg = mm.ConnectionMessage()
+        attempt_connect = open_msg.request(c_socket, 'CONNECT')
 
-    if message_out:
-        message_out = message_out.encode('utf-8')
-        message_header = f"{len(message_out) :< {HEADER_LENGTH}}".encode('utf-8')
-        c_socket.send(message_header + message_out)
+    # display intro text to user
+    ms.intro()
 
-    try:
-        while True:
-            username_in_header = c_socket.recv(HEADER_LENGTH)
-            if not len(username_in_header):
-                print("server closed connection")
-                sys.exit()
-            username_in_len = int(username_in_header.decode('utf-8').strip())
-            username_in = c_socket.recv(username_in_len).decode('utf-8')
+    while True:
 
-            msg_in_header = c_socket.recv(HEADER_LENGTH)
-            msg_in_len = int(msg_in_header.decode('utf-8').strip())
-            msg_in = c_socket.recv(msg_in_len).decode('utf-8')
-            print(f"{username_in} >> {msg_in}")
+        out = None
+        wait = True
 
-    except IOError as e:
-        if e.errno != errno.EAGAIN and e.errno != errno.EWOULDBLOCK:
-            print('error reading in from', str(e))
-            sys.exit()
-        continue
+        while action or wait:
+            action = ms.receive_msg_in(action, c_socket)
+            if not action:
+                wait = False
+            else:
+                wait = True
 
-    except Exception as e:
-        print('General error', str(e))
-        sys.exit()
+        selection = ms.process_user_choice()
 
+        if selection == '$create$':
+            msg = mm.CreateRoomMessage(None, c.my_username, 'SERVER', None)
+            status = msg.request(c_socket)
+            if status:
+                action = True
+        elif selection == '$join$':
+            msg = mm.JoinMessage(None, c.my_username, 'SERVER', None)
+            num_joined = msg.request(c_socket)
+            if num_joined != 0:
+                print('WARNING: could not join all specified rooms')
+            action = True
+        elif selection == '$view_all$':
+            all_rooms = ms.list_all_rooms()
+            if all_rooms != len(c.ALL_ROOMS):
+                print('SYSTEM ERROR printing all rooms')
+            action = False
+        elif selection == '$menu$':
+            ms.intro()
+            action = False
+        elif selection == '$list$':
+            list_mem = ms.list_room_members()
+            if list_mem == -1:
+                print('error finding room')
+            action = False
+        elif selection == '$msg$':
+            msg = mm.ChatMessage(None, c.my_username, None, None)
+            num_sent = msg.request(c_socket)
+            if num_sent < 0:
+                action = False
+            else:
+                action = True
+        elif selection == '$leave$':
+            msg = mm.LeaveMessage(None, c.my_username, 'Server', None)
+            num_left = msg.request(c_socket)
+            if num_left < 0:
+                action = False
+            else:
+                action = True
+        elif selection == '$quit$':
+            msg = mm.ConnectionMessage(None, c.my_username, 'Server', None)
+            msg.request(c_socket, 'QUIT')
+            sys.exit('EXITED SYSTEM')
+
+        # if there is a message to send, send it
+        if out is not None:
+            c_socket.send(out)
+
+
+
+if __name__ == '__main__':
+    main()
