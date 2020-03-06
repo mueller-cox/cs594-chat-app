@@ -1,5 +1,3 @@
-import sys
-sys.path.insert(1, '/ChatApp/')
 from threading import Thread
 import Server.messages as mr
 import Server.session as sess
@@ -52,6 +50,8 @@ def handle_incoming_connections():
                 else:
                     print(f"Connection refused from {c_address[0]}:{c_address[1]} username: {user.sender}")
                     continue
+            else:
+                continue
 
 
 """
@@ -68,6 +68,8 @@ def receive_message(c_socket):
         if not len(message_header):
             return False
         message_len = int(message_header.decode('utf-8').strip())
+        if message_len > base.MSG_MAX:
+            return False
         msg_in = c_socket.recv(message_len).decode('utf-8')
         new_msg = json.loads(msg_in, object_hook=mr.json_obj_decoder)
         return new_msg
@@ -115,32 +117,29 @@ def manage_client(c_socket):
         user = s.CLIENTS[c_socket]
 
         print(f"Received {type(msg_in)} message from {user}: {msg_in.data}")
-        try:
-            if isinstance(msg_in, mr.CreateRoomMessage):
-                created = msg_in.receive(c_socket)
-                if created:
-                    msg_in.request()
-            elif isinstance(msg_in, mr.JoinMessage):
-                joined = msg_in.receive(c_socket)
-                if joined:
-                    msg_in.request(c_socket)
-            elif isinstance(msg_in, mr.ChatMessage):
-                sent = msg_in.receive(c_socket)
-                if sent:
-                    msg_in.forward()
-            elif isinstance(msg_in, mr.LeaveMessage):
-                left = msg_in.receive(c_socket)
-                if left:
-                    msg_in.request()
-            elif isinstance(msg_in, mr.ConnectionMessage):
-                if msg_in.data == 'QUIT':
-                    sess.process_client_exit(c_socket, msg_in.sender)
-                    run = False
-            else:
-                continue
-        except socket.error:
-            print("INTERNAL ERROR CLIENT WILL EXIT")
-            run = False
+        if isinstance(msg_in, mr.CreateRoomMessage):
+            created = msg_in.receive(c_socket)
+            if created:
+                msg_in.request()
+        elif isinstance(msg_in, mr.JoinMessage):
+            joined = msg_in.receive(c_socket)
+            if joined:
+                msg_in.request(c_socket)
+        elif isinstance(msg_in, mr.ChatMessage):
+            sent = msg_in.receive(c_socket)
+            if sent:
+                msg_in.forward()
+        elif isinstance(msg_in, mr.LeaveMessage):
+            left = msg_in.receive(c_socket)
+            if left:
+                msg_in.request()
+        elif isinstance(msg_in, mr.ConnectionMessage):
+            if msg_in.data == 'QUIT':
+                sess.process_client_exit(c_socket, msg_in.sender)
+                run = False
+        else:
+            continue
+
 
 
 if __name__ == '__main__':

@@ -16,7 +16,7 @@ import json
 
 def intro():
     print("****Chat App Option Menu****")
-    print("To List all available rooms enter $view all$ ")
+    print("To List all available rooms enter $view_all$ ")
     print("To List the users belonging to a specific group enter $list$")
     print("To display this menu again enter $menu$")
     print("To Create Room enter $create$. ")
@@ -102,11 +102,11 @@ def process_user_choice():
         if not choice:
             return
         if choice.lower() not in valid_choices:
-            raise ValueError('invalid choice')
+            raise ValueError
         if not choice:
-            raise ValueError('empty string')
-    except ValueError as e:
-        print(e)
+            raise ValueError
+    except ValueError:
+        print('INVALID CHOICE ERROR: see menu')
         return 'invalid'
 
     return choice
@@ -125,7 +125,10 @@ def establish_connection(ip, port):
         c_socket.connect((ip, port))
         c_socket.setblocking(False)
     except socket.error as se:
-        sys.exit(f'CONNECTION ERROR: could not connect to {ip}:{port}')
+        error = base.Error()
+        error.broken_connection(ip)
+        error.receive()
+        sys.exit(f'EXITING')
 
     return c_socket
 
@@ -157,14 +160,21 @@ def receive_msg_in(status, c_socket):
         while True:
             msg_in_header = c_socket.recv(base.header_len)
             header_len = len(msg_in_header)
+
             if not header_len:
-                print("CONNECTION ERROR: SERVER CLOSED CONNECTION")
+                error = base.Error()
+                error.broken_connection('SERVER')
+                error.receive()
                 sys.exit('EXITING')
                 return False
-            if header_len > base.MSG_MAX:
-                print(f'CONNECTION ERROR: did not read message length exceeded MAX {base.MSG_MAX}')
-                return False
             msg_in_len = int(msg_in_header.decode('utf-8').strip())
+
+            if header_len > base.MSG_MAX:
+                error = base.Error()
+                error.msg_exceeds_len()
+                error.receive()
+                return False
+
             msg_in = c_socket.recv(msg_in_len).decode('utf-8')
             new_msg_in = json.loads(msg_in, object_hook=mm.json_msg_decoder)
 

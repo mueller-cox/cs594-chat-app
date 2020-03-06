@@ -1,4 +1,3 @@
-import sys
 import Client.settings as c
 import Base.settings as base
 import Base.messages as msg
@@ -18,14 +17,18 @@ class CreateRoomMessage(msg.Message):
 
         try:
             my_room = input("New room name: ")
+            error = base.Error()
             if not my_room:
-                raise ValueError('INPUT ERROR: EMPTY STRING')
+                error.empty_string()
+                raise ValueError
             if my_room in c.ALL_ROOMS:
-                raise ValueError('ERROR: ROOM ALREADY EXISTS')
+                error.create_duplicate_room(my_room)
+                raise ValueError
             if len(my_room) > base.NAME_MAX:
-                raise ValueError(f'ERROR: room exceeds MAX length {base.NAME_MAX}')
+                error.name_exceeds_len()
+                raise ValueError
         except ValueError as e:
-            print(e)
+            error.receive()
             return False
 
         self.data = my_room.rstrip()
@@ -67,26 +70,33 @@ class JoinMessage(msg.Message):
     def request(self, c_socket):
         num_joined = 0
         try:
+            error = base.Error()
             my_join_request = input("What room(s) do you wish to join? comma separated list for multiple joins: ")
             if not my_join_request:
-                raise ValueError('ERROR: empty string')
+                error.empty_string()
+                raise ValueError
 
             adjust_join = my_join_request.lower()
             join_list = adjust_join.split(",")
-            if len(join_list) > base.JOIN_MAX:
-                raise ValueError(f'ERROR: number of rooms exceeds JOIN MAX {base.JOIN_MAX}')
-        except ValueError as e:
-            print(e)
+        except ValueError:
+            error.receive()
             return -1
 
         for room in join_list:
-            if room in c.ALL_ROOMS.keys() and room not in c.MY_ROOMS.keys():
-                self.data = room.rstrip()
-                to_send = self.prepare_msg_out('JoinMessage')
-                c_socket.send(to_send)
-                num_joined += 1
+            if room in c.ALL_ROOMS.keys():
+                if room not in c.MY_ROOMS.keys():
+                    self.data = room.rstrip()
+                    to_send = self.prepare_msg_out('JoinMessage')
+                    c_socket.send(to_send)
+                    num_joined += 1
+                else:
+                    error = base.Error()
+                    error.join_duplicate_user(c.my_username,room)
+                    error.receive()
             else:
-                print(f"ERROR: could not place join request {room} does not exist")
+                error = base.Error()
+                error.room_missing(room)
+                error.receive()
 
         return len(join_list) - num_joined
 
@@ -133,26 +143,26 @@ class ChatMessage(msg.Message):
 
     @staticmethod
     def choose_recipients():
-        print("Enter rooms to message as comma separated list (must be joined, enter 'all' to send to all joined)")
+        print("Enter rooms to message as comma separated list (must be joined to send)")
         adjusted = ""
         try:
             my_recipients = input("Rooms to msg: ")
+            error = base.Error()
 
             if not my_recipients:
-                raise ValueError('INPUT ERROR: empty string')
+                error.empty_string()
+                raise ValueError
 
             adjusted = my_recipients.lower()
             adjusted = my_recipients.split(',')
 
-            if len(adjusted) > base.JOIN_MAX:
-                raise ValueError(f'SEND MSG ERROR: number of rooms exceeds JOIN MAX {base.JOIN_MAX}')
-
             for room in adjusted:
                 if room not in c.MY_ROOMS.keys():
                     adjusted.remove(room)
-                    ValueError(f'SEND MSG ERROR: have not joined {room}')
-        except ValueError as e:
-            print(e)
+                    error.room_missing(room)
+                    raise ValueError
+        except ValueError:
+            error.receive()
 
         return adjusted
 
@@ -172,12 +182,17 @@ class ChatMessage(msg.Message):
 
         try:
             my_msg = input("Msg: ")
+            error = base.Error()
             if not my_msg:
-                raise ValueError('ERROR empty string')
+                error.empty_string()
+                raise ValueError
             if len(my_msg) > base.MSG_MAX:
-                raise ValueError('ERROR string too long')
-        except ValueError as e:
-            print(e)
+                error.data_exceeds_len()
+                raise ValueError
+        except ValueError:
+
+            error.receive()
+
             return -1
 
         self.data = my_msg
@@ -227,13 +242,15 @@ class LeaveMessage(msg.Message):
         try:
             my_leave_request = input("What room(s) do you wish to leave? comma separated list for multiple joins: ")
             if not my_leave_request:
-                raise ValueError('empty string')
+                raise ValueError
 
             adjust_leave = my_leave_request.lower()
             leave_list = adjust_leave.split(",")
 
         except ValueError as e:
-            print(e)
+            error = base.Error()
+            error.empty_string()
+            error.receive()
             return -1
 
         for room in leave_list:
@@ -244,7 +261,9 @@ class LeaveMessage(msg.Message):
                 c_socket.send(to_send)
                 num_left += 1
             else:
-                print(f"LEAVE ERROR: could not place leave request {room} does not exist")
+                error = base.Error()
+                error.room_missing(room)
+                error.receive()
 
         return len(leave_list) - num_left
 
@@ -299,27 +318,48 @@ class ConnectionMessage(msg.Message):
 
         return 1
 
+    """
+        request_open creates and sends initial connection message to server
+        Arguments: none
+        Returns: byte str of message to send or None
+    """
+
     def request_open(self):
         try:
             from_user = input("Username: ")
+            error = base.Error()
 
             if not from_user:
-                raise ValueError('INPUT ERROR: empty string')
+                error.empty_string()
+                raise ValueError
             elif len(from_user) > base.NAME_MAX:
-                raise ValueError(f'INPUT ERROR: name exceeds MAX length {base.NAME_MAX} ')
+                error.name_exceeds_len()
+                raise ValueError
             c.my_username = from_user.lower().rstrip()
-
-        except ValueError as e:
-            print(e)
+        except ValueError:
+            error.receive()
             return None
 
         self.sender = c.my_username.rstrip()
         to_send = self.prepare_msg_out('ConnectionMessage')
         return to_send
 
+    """
+        request_close send quit message to server 
+        Arguments: none
+        Returns: str message to send 
+    """
+
     def request_close(self):
         to_send = self.prepare_msg_out('ConnectionMessage')
         return to_send
+
+    """
+        receive processes connection messages from server, either acknowledges
+        an open connection or terminates session
+        Arugments: none
+        Returns: True or False on whether connection should continue
+    """
 
     def receive(self):
         if self.data == 'CONNECT':

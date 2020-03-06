@@ -42,12 +42,14 @@ def main():
             msg = mm.JoinMessage(None, c.my_username, 'SERVER', None)
             num_joined = msg.request(c_socket)
             if num_joined != 0:
-                print('WARNING: could not join all specified rooms')
+                warning = base.Error()
+                warning.warning_join()
+                warning.receive()
             action = True
         elif selection == '$view_all$':
             all_rooms = ms.list_all_rooms()
             if all_rooms != len(c.ALL_ROOMS):
-                print('SYSTEM ERROR printing all rooms')
+                print('SYSTEM ERROR: printing all rooms')
             action = False
         elif selection == '$menu$':
             ms.intro()
@@ -55,7 +57,9 @@ def main():
         elif selection == '$list$':
             list_mem = ms.list_room_members()
             if list_mem == -1:
-                print('error finding room')
+                error = base.Error()
+                error.room_missing('room')
+                error.receive()
             action = False
         elif selection == '$msg$':
             msg = mm.ChatMessage(None, c.my_username, None, None)
@@ -79,7 +83,6 @@ def main():
         # if there is a message to send, send it
         if out is not None:
             c_socket.send(out)
-
 
 
 if __name__ == '__main__':

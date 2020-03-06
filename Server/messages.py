@@ -1,4 +1,3 @@
-import json
 import Server.settings as s
 import Base.settings as base
 import Base.messages as msg
@@ -56,20 +55,17 @@ class CreateRoomMessage(msg.Message):
     """
 
     def validate_room_creation(self):
-        try:
-            if not self.data:
-                raise ValueError(20)
 
-            if len(self.data) > base.NAME_MAX:
-                raise ValueError(21)
+        if not self.data:
+            return 20
 
-            adjusted_name = self.data.lower()
+        if len(self.data) > base.NAME_MAX:
+            return 21
 
-            if adjusted_name in s.ROOMS:
-                raise ValueError(25)
+        adjusted_name = self.data.lower()
 
-        except ValueError as ve:
-            return ve
+        if adjusted_name in s.ROOMS:
+            return 25
 
         return 0
 
@@ -108,14 +104,15 @@ class ConnectionMessage(msg.Message):
             c_socket.send(to_send)
 
             # send user all of the existing rooms and users joined to the rooms
-            for rooms in s.JOINED.keys():
+            for rooms in s.ROOMS.keys():
                 create = CreateRoomMessage(None, 'Server', self.sender, rooms)
                 to_send = create.prepare_msg_out('CreateRoomMessage')
                 c_socket.send(to_send)
-                for user in s.JOINED[rooms]:
-                    join = JoinMessage(None, user, self.sender, rooms)
-                    to_send = join.prepare_msg_out('JoinMessage')
-                    c_socket.send(to_send)
+                if rooms in s.JOINED.keys():
+                    for user in s.JOINED[rooms]:
+                        join = JoinMessage(None, user, self.sender, rooms)
+                        to_send = join.prepare_msg_out('JoinMessage')
+                        c_socket.send(to_send)
 
             added = True
         else:
@@ -164,7 +161,7 @@ class JoinMessage(msg.Message):
     """
 
     def receive(self, c_socket):
-        valid_join = self.validate_join_request(self.sender, self.data)
+        valid_join = self.validate_join_request(self.sender, self.data, s.CLIENTS[c_socket])
 
         if valid_join == 0:
             room = self.data
@@ -180,6 +177,8 @@ class JoinMessage(msg.Message):
                 send_error.name_exceeds_len()
             elif valid_join == 22:
                 send_error.room_missing(self.data)
+            elif valid_join == 23:
+                send_error.username_mismatch()
             to_send = send_error.prepare_error_out()
             c_socket.send(to_send)
             joined = False
@@ -192,7 +191,7 @@ class JoinMessage(msg.Message):
     """
 
     @staticmethod
-    def validate_join_request(username, room):
+    def validate_join_request(username, room, socket_name):
 
         if not room or not username:
             return 20
@@ -205,6 +204,9 @@ class JoinMessage(msg.Message):
 
         if username in s.JOINED[room]:
             return 24
+
+        if username != socket_name:
+            return 23
 
         return 0
 
@@ -248,11 +250,17 @@ class ChatMessage(msg.Message):
 
     def receive(self, c_socket):
 
-        valid_room = self.validate_room_name(self.dest)
-        valid_data = False
+        valid_room = self.validate_chat(self.dest, self.sender, s.CLIENTS[c_socket])
+        msg_ok = False
 
         if len(self.data) <= base.DATA_MAX:
             valid_data = True
+        else:
+            error = base.Error()
+            error.data_exceeds_len()
+            to_send = error.prepare_error_out()
+            c_socket.send(to_send)
+            return False
 
         if valid_room == 0 and valid_data:
             s.ROOMS[self.dest].append(self)
@@ -267,6 +275,10 @@ class ChatMessage(msg.Message):
                 error_out.name_exceeds_len()
             elif valid_data is False:
                 error_out.data_exceeds_len()
+            elif valid_room == 23:
+                error_out.username_mismatch()
+            elif valid_room == 27:
+                error_out.join_user_notfound(s.CLIENTS[c_socket], self.data)
             to_send = error_out.prepare_error_out()
             c_socket.send(to_send)
             msg_ok = False
@@ -278,21 +290,26 @@ class ChatMessage(msg.Message):
         Returns: int of error code or 0 if valid
     """
     @staticmethod
-    def validate_room_name(room_name):
-        try:
-            if not room_name:
-                raise ValueError(20)
+    def validate_chat(room_name, username, socket_name):
 
-            if len(room_name) > base.NAME_MAX:
-                raise ValueError(21)
+        if not room_name:
+            return 20
+        if len(room_name) > base.NAME_MAX:
+            return 21
 
-            adjusted_name = room_name.lower()
+        adjusted_name = room_name.lower()
 
-            if adjusted_name not in s.ROOMS:
-                raise ValueError(25)
+        if adjusted_name not in s.ROOMS:
+            return 25
 
-        except ValueError as ve:
-            return ve
+        if username != socket_name:
+            return 23
+
+        if socket_name not in s.JOINED[adjusted_name]:
+            return 27
+
+
+
 
         return 0
 
@@ -322,7 +339,7 @@ class LeaveMessage(msg.Message):
     """
 
     def receive(self, c_socket):
-        valid_leave = self.validate_leave_request(self.data, self.sender)
+        valid_leave = self.validate_leave_request(self.data, self.sender, s.CLIENTS[c_socket])
 
         if valid_leave == 0:
             s.JOINED[self.data].remove(self.sender)
@@ -337,6 +354,8 @@ class LeaveMessage(msg.Message):
                 send_error.name_exceeds_len()
             elif valid_leave == 22:
                 send_error.room_missing(self.data)
+            elif valid_leave == 23:
+                send_error.username_mismatch()
             to_send = send_error.prepare_error_out()
             c_socket.send(to_send)
             left = False
@@ -350,10 +369,13 @@ class LeaveMessage(msg.Message):
     """
 
     @staticmethod
-    def validate_leave_request(room_name, username):
+    def validate_leave_request(room_name, username, socket_name):
 
         if not room_name or not username:
             return 20
+
+        if username != socket_name:
+            return 23
 
         if len(username) > base.NAME_MAX or len(room_name) > base.NAME_MAX:
             return 21

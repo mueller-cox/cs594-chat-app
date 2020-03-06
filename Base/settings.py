@@ -21,7 +21,7 @@ class Error:
     """
        json_error converts an error object into a json object, used for sending errors to server
        Arguments: str for type of object to produce
-       Returns: dictonary representation of Msg
+       Returns: dictionary representation of Msg
 
     """
 
@@ -54,7 +54,7 @@ class Error:
         return self.code
 
     """
-        modify errors
+        modify errors for error code
     """
 
     def broken_connection(self, connect):
@@ -64,6 +64,10 @@ class Error:
     def create_duplicate_user(self, username):
         self.code = 3
         self.data = f'CONNECTION ERROR: {username} username already in use'
+
+    def msg_exceeds_len(self):
+        self.code = 4
+        self.data = f'MSG ERROR: msg in message exceeds {MSG_MAX}'
 
     def empty_string(self):
         self.code = 20
@@ -93,4 +97,12 @@ class Error:
     def data_exceeds_len(self):
         self.code = 26
         self.data = f'MSG ERROR: data in message exceeds {DATA_MAX}'
+
+    def warning_join(self):
+        self.code = 28
+        self.data = f'WARNING: could not join all selected rooms'
+
+    def username_mismatch(self):
+        self.code = 23
+        self.data = f'USER ERROR: username does not match username associated with connection'
 

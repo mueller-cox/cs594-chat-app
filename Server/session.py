@@ -1,7 +1,6 @@
 import Server.settings as s
 import Server.messages as msg
-import json
-import Base.settings as base
+
 
 """
     when a user exits remove them from joined, send leave messages for each room joined to, remove from sockets list,
@@ -12,9 +11,9 @@ import Base.settings as base
 def process_client_exit(c_socket, username):
     for room in s.JOINED.keys():
         if username in s.JOINED[room]:
-            s.JOINED[room].remove(username)
             leave = msg.LeaveMessage(None, username, 'ALL', room)
             leave.request()
+            s.JOINED[room].remove(username)
 
     if c_socket in s.SOCKETS_LIST:
         s.SOCKETS_LIST.remove(c_socket)
